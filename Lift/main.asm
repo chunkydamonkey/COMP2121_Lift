@@ -1,3 +1,6 @@
+
+; The program gets input from keypad and displays its ascii value on the
+; LED bar
 .include "m2560def.inc"
 
 .def temp1=r16
@@ -6,7 +9,24 @@
 .def temp4=r19
 .def temp5=r20
 
-.def lift_buttons = r21
+.def row = r21 ; current row number
+.def col = r22 ; current column number
+.def rmask = r23 ; mask for current row during scan
+.def cmask = r24 ; mask for current column during scan
+
+.equ PORTLDIR = 0xF0 ; PD7-4: output, PD3-0, input
+.equ INITCOLMASK = 0xEF ; scan from the rightmost column,
+.equ INITROWMASK = 0x01 ; scan from the top row
+.equ ROWMASK = 0x0F ; for obtaining input from Port D
+
+.equ LCD_RS = 7
+.equ LCD_E = 6
+.equ LCD_RW = 5
+.equ LCD_BE = 4
+
+.equ F_CPU = 16000000
+.equ DELAY_1MS = F_CPU / 4 / 1000 - 4
+; 4 cycles per iteration - setup/call-return overhead
 
 .macro do_lcd_command
 	ldi temp1, @0
@@ -32,10 +52,9 @@
 .macro do_divide
 	mov temp1, @0
 	mov temp2, @1
-	clr temp3
 	rcall divide
-	mov @0, temp3 ;store result in first register argument
-	mov @1, temp1 ;store remainder in second register argument
+	mov @0, temp1 ;store result in first register argument
+	mov @1, temp2 ;store remainder in second register argument
 .endmacro
 .macro do_to_ascii_number
 	mov temp1, @0
@@ -43,73 +62,6 @@
 	rcall to_ascii_number
 	mov @0, temp1
 .endmacro
-
-.org 0
-	jmp RESET
-.org INT2addr
-	jmp EXT_INT2
-
-RESET:
-	ldi temp1, low(RAMEND)
-	out SPL, temp1
-	ldi temp1, high(RAMEND)
-	out SPH, temp1
-
-	ser temp1
-	out DDRF, temp1
-	out DDRA, temp1
-	out DDRC, temp1 ;LED panel
-
-
-	;INITIALIZE PORT VALUES
-	ldi temp1, 0b10101010 ; initial set of LED panel
-	out PORTC, temp1
-
-	clr temp1
-	out PORTF, temp1
-	out PORTA, temp1
-	
-	;ENABLE INT2 INTERRUPTS
-	;set 0b00000100 into EIMSK to enable int2 interrupts
-	in temp1, EIMSK
-	ori temp1, 0b00000100
-	out EIMSK, temp1
-
-	lds temp1, EICRA
-	ori temp1, 0b00110000
-	sts EICRA, temp1
-	;set 0b00110000 into EICRA to set int2 interrupts to trigger on rising edge
-	
-	sei
-
-	do_lcd_command 0b00111000 ; 2x5x7
-	rcall sleep_5ms
-	do_lcd_command 0b00001000 ; display off?
-	do_lcd_command 0b00000001 ; clear display
-	do_lcd_command 0b00000110 ; increment, no display shift
-	do_lcd_command 0b00001110 ; Cursor on, bar, no blink
-
-	ldi r22, 130
-	
-	do_lcd_number r22
-
-	rjmp halt
-
-halt:
-	rjmp halt
-
-EXT_INT2:
-	out PORTC, r22
-
-	do_lcd_command 0b00000001
-	do_lcd_number r22
-	ret ;if this is set to reti, the interrupt is continiously detected
-
-.equ LCD_RS = 7
-.equ LCD_E = 6
-.equ LCD_RW = 5
-.equ LCD_BE = 4
-
 .macro lcd_set
 	sbi PORTA, @0
 .endmacro
@@ -117,9 +69,113 @@ EXT_INT2:
 	cbi PORTA, @0
 .endmacro
 
-;
-; Send a command to the LCD (temp1)
-;
+
+RESET:
+	ldi temp1, low(RAMEND) ; initialize the stack
+	out SPL, temp1
+	ldi temp1, high(RAMEND)
+	out SPH, temp1
+	ldi temp1, PORTLDIR ; PA7:4/PA3:0, out/in
+	sts DDRL, temp1 ;DDRA out
+
+	;set pins as output
+	ser temp1 
+	out DDRA, temp1
+	out DDRC, temp1
+	out DDRF, temp1
+
+	out PORTC, temp1
+
+	do_lcd_command 0b00000001 ; clear display
+	ldi r20, 91
+	
+	do_lcd_data_r r20
+	do_lcd_number r20
+	do_lcd_data '|'
+
+	ldi r25, 2
+	do_divide r20, r25
+	do_lcd_number r20
+	 
+
+	
+
+main:
+	ldi cmask, INITCOLMASK ; initial column mask
+	clr col ; initial column
+
+colloop:
+	cpi col, 4
+	breq main ; If all keys are scanned, repeat.
+	sts PORTL, cmask ; Otherwise, scan a column. out
+	ldi temp1, 0xFF ; Slow down the scan operation.
+
+delay: 
+	dec temp1
+	brne delay
+	lds temp1, PINL ; Read PORTL in
+	andi temp1, ROWMASK ; Get the keypad output value
+	cpi temp1, 0xF ; Check if any row is low
+	breq nextcol
+	; If yes, find which row is low
+	ldi rmask, INITROWMASK ; Initialize for row check
+	clr row ;
+	
+rowloop:
+	cpi row, 4
+	breq nextcol ; the row scan is over.
+	mov temp2, temp1
+	and temp2, rmask ; check unmasked bit
+	breq convert
+	inc row
+	lsl rmask
+	ori rmask, 0xF0
+	jmp rowloop
+
+nextcol: ; if row scan is over
+	lsl cmask
+	ori cmask, 0x0F
+	inc col	; incresae column value
+	jmp colloop ; go to the next column
+	
+convert:
+	cpi col, 3 ; If the pressed key in in col.3
+	breq letters ; we have a letter
+	; If the key is not in col.3
+	cpi row, 3 ; If the key is in row3,
+	breq symbols
+	mov temp1, row 
+	; Otherwise we have a number in 1-9
+	lsl temp1
+	add temp1, row
+	add temp1, col ; temp1 = row*3 + col
+	inc temp1
+	;subi temp1, -'1' ; Add the value of character ‘1’
+	jmp convert_end
+
+letters:
+	ldi temp1, 'A'
+	add temp1, row ; Get the ASCII value for the key
+	jmp convert_end
+
+symbols:
+	cpi col, 0 ; Check if we have a star
+	breq star
+	cpi col, 1 ; or if we have zero
+	breq zero
+	ldi temp1, '#' ; if not we have hash
+	jmp convert_end
+
+star:
+	ldi temp1, '*' ; Set to star
+	jmp convert_end
+
+zero:
+	clr temp1 ; Set to zero
+
+convert_end:
+	out PORTC, temp1 ; Write value to PORTC
+	jmp main ; Restart main loop
 
 lcd_command:
 	out PORTF, temp1
@@ -162,10 +218,6 @@ lcd_wait_loop:
 	pop temp1
 	ret
 
-.equ F_CPU = 16000000
-.equ DELAY_1MS = F_CPU / 4 / 1000 - 4
-; 4 cycles per iteration - setup/call-return overhead
-
 sleep_1ms:
 	push r24
 	push r25
@@ -178,15 +230,10 @@ delayloop_1ms:
 	pop r24
 	ret
 
-sleep_5ms:
-	rcall sleep_1ms
-	rcall sleep_1ms
-	rcall sleep_1ms
-	rcall sleep_1ms
-	rcall sleep_1ms
-	ret
+
 
 divide:
+	push temp3
 	clr temp3
 divide_iterate:
 	cp temp1, temp2
@@ -195,27 +242,36 @@ divide_iterate:
 	inc temp3 ;keep track of division count, this is the result.
 	rjmp divide_iterate
 divide_return:
+	mov temp2, temp1 ;store the remainder into temp2
+	mov temp1, temp3 ; store the result into temp1
+	pop temp3
 	ret
 
 lcd_number:
-	clr temp4
-	ldi r23, 10
+	push temp3
+	push temp4
+	push temp5
+	clr temp3
+	ldi temp4, 10
 lcd_number_iterate:
-	inc temp4
-	ldi r23, 10
-	do_divide r22, r23
-	push r23 ;push the remainer 
-	cpi r22, 0
+	inc temp3
+	ldi temp4, 10
+	do_divide temp5, temp4
+	push temp4 ;push the remainer 
+	cpi temp5, 0
 	brne lcd_number_iterate
 lcd_number_print_digit:
-	cpi temp4, 0
+	cpi temp3, 0
 	breq lcd_number_return
-	dec temp4
-	pop r23
-	do_to_ascii_number r23
-	do_lcd_data_r r23
+	dec temp3
+	pop temp4 ;pop remainder results and print
+	do_to_ascii_number temp4
+	do_lcd_data_r temp4
 	rjmp lcd_number_print_digit
 lcd_number_return:
+	pop temp5
+	pop temp4
+	pop temp3
 	ret
 
 to_ascii_number:

@@ -1,5 +1,5 @@
 
-AVRASM ver. 2.2.7  c:\users\pochu\Documents\Atmel Studio\7.0\Lift\Lift\main.asm Sun May 27 20:47:36 2018
+AVRASM ver. 2.2.7  c:\users\pochu\Documents\Atmel Studio\7.0\Lift\Lift\main.asm Sun May 27 22:14:05 2018
 
 
 EQU  SIGNATURE_000 0000001e
@@ -1364,28 +1364,43 @@ DEF  temp2        r17
 DEF  temp3        r18
 DEF  temp4        r19
 DEF  temp5        r20
-DEF  lift_buttons r21
-CSEG RESET        00000008
-CSEG EXT_INT2     00000035
-CSEG lcd_command  0000003e
-CSEG lcd_wait     0000004e
-CSEG sleep_5ms    00000068
-CSEG lcd_number   00000075
-CSEG halt         00000034
+DEF  row          r21
+DEF  col          r22
+DEF  rmask        r23
+DEF  cmask        r24
+EQU  PORTLDIR     000000f0
+EQU  INITCOLMASK  000000ef
+EQU  INITROWMASK  00000001
+EQU  ROWMASK      0000000f
 EQU  LCD_RS       00000007
 EQU  LCD_E        00000006
 EQU  LCD_RW       00000005
 EQU  LCD_BE       00000004
-CSEG sleep_1ms    0000005f
-CSEG lcd_data     00000045
-CSEG lcd_wait_loop 00000053
 EQU  F_CPU        00f42400
 EQU  DELAY_1MS    00000f9c
-CSEG delayloop_1ms 00000063
-CSEG divide       0000006e
-CSEG divide_iterate 0000006f
-CSEG divide_return 00000074
-CSEG lcd_number_iterate 00000077
-CSEG lcd_number_print_digit 00000082
-CSEG lcd_number_return 0000008e
-CSEG to_ascii_number 0000008f
+CSEG RESET        00000000
+CSEG lcd_command  00000060
+CSEG lcd_wait     00000070
+CSEG lcd_data     00000067
+CSEG lcd_number   00000095
+CSEG divide       0000008a
+CSEG main         00000024
+CSEG colloop      00000026
+CSEG delay        0000002b
+CSEG nextcol      0000003e
+CSEG rowloop      00000034
+CSEG convert      00000043
+CSEG letters      0000004e
+CSEG symbols      00000052
+CSEG convert_end  0000005d
+CSEG star         00000059
+CSEG zero         0000005c
+CSEG sleep_1ms    00000081
+CSEG lcd_wait_loop 00000075
+CSEG delayloop_1ms 00000085
+CSEG divide_iterate 0000008c
+CSEG divide_return 00000091
+CSEG lcd_number_iterate 0000009a
+CSEG lcd_number_print_digit 000000a4
+CSEG lcd_number_return 000000b0
+CSEG to_ascii_number 000000b4
