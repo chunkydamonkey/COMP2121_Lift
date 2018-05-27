@@ -3,8 +3,6 @@
 ; LED bar
 .include "m2560def.inc"
 
-.def temp_counter = r15
-
 .def temp1=r16
 .def temp2=r17
 .def temp3=r18
@@ -46,7 +44,7 @@
 	rcall lcd_wait
 .endmacro
 .macro do_lcd_number
-	mov temp1, @0
+	mov temp5, @0
 	rcall lcd_number
 	rcall lcd_wait
 .endmacro
@@ -88,21 +86,14 @@ RESET:
 	out PORTC, temp1
 
 	do_lcd_command 0b00000001 ; clear display
-	ldi r21, 23
-	ldi r22, 4
+	ldi r20, 133
+	ldi r21, 12
 
+	do_divide r20, r21
 
-	do_divide r21, r22
 	do_lcd_number r21
-	do_lcd_data '|'
-	do_lcd_number r22
-	do_lcd_data '|'
-	do_lcd_number r21
-	do_lcd_data '|'
-	do_lcd_number r22
-	do_lcd_data '|'
 
-	out PORTC, r22
+	out PORTC, r21
 
 main:
 	ldi cmask, INITCOLMASK ; initial column mask
@@ -237,44 +228,44 @@ delayloop_1ms:
 
 
 divide:
-	push temp_counter
-	clr temp_counter
+	push temp3
+	clr temp3
 divide_iterate:
 	cp temp1, temp2
 	brlo divide_return
 	sub temp1, temp2 ;number,divisor, temp1 will contain the remainder.
-	inc temp_counter ;keep track of division count, this is the result.
+	inc temp3 ;keep track of division count, this is the result.
 	rjmp divide_iterate
 divide_return:
 	mov temp2, temp1 ;store the remainder into temp2
-	mov temp1, temp_counter ; store the result into temp1
-	pop temp_counter
+	mov temp1, temp3 ; store the result into temp1
+	pop temp3
 	ret
 
 lcd_number:
-	push temp_counter
-	push temp2
-	push temp1
-	clr temp_counter
+	push temp3
+	push temp4
+	push temp5
+	clr temp3
 lcd_number_iterate:
-	inc temp_counter
-	ldi temp2, 10
-	do_divide temp1, temp2
-	push temp2 ;push the remainer 
-	cpi temp1, 0
+	inc temp3
+	ldi temp4, 10
+	do_divide temp5, temp4
+	push temp4 ;push the remainer 
+	cpi temp5, 0
 	brne lcd_number_iterate
 lcd_number_print_digit:
-	tst temp_counter
+	cpi temp3, 0
 	breq lcd_number_return
-	dec temp_counter
-	pop temp2 ;pop remainder results and print
-	do_to_ascii_number temp2
-	do_lcd_data_r temp2
+	dec temp3
+	pop temp4 ;pop remainder results and print
+	do_to_ascii_number temp4
+	do_lcd_data_r temp4
 	rjmp lcd_number_print_digit
 lcd_number_return:
-	pop temp1
-	pop temp2
-	pop temp_counter
+	pop temp5
+	pop temp4
+	pop temp3
 	ret
 
 to_ascii_number:
