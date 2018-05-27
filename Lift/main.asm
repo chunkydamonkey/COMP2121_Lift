@@ -93,7 +93,7 @@ RESET:
 	do_lcd_number r20
 	do_lcd_data '|'
 
-	ldi r25, 2
+	ldi r25, 3
 	do_divide r20, r25
 	do_lcd_number r20
 	 
