@@ -26,48 +26,76 @@
 .equ LCD_RW = 5
 .equ LCD_BE = 4
 
+.equ MAX_LVLS = 10
+
 .equ F_CPU = 16000000
 .equ DELAY_1MS = F_CPU / 4 / 1000 - 4
 ; 4 cycles per iteration - setup/call-return overhead
 
 .macro do_lcd_command
+	push temp1
 	ldi temp1, @0
 	rcall lcd_command
 	rcall lcd_wait
+	pop temp1
 .endmacro
 .macro do_lcd_data
+	push temp1
 	ldi temp1, @0
 	rcall lcd_data
 	rcall lcd_wait
+	pop temp1
 .endmacro
 .macro do_lcd_data_r
+	push temp1
 	mov temp1, @0
 	rcall lcd_data
 	rcall lcd_wait
+	pop temp1
 .endmacro
 .macro do_lcd_number
+	push temp1
 	mov temp1, @0
 	rcall lcd_number
 	rcall lcd_wait
+	pop temp1
 .endmacro
 .macro do_divide
+	push temp1
+	push temp2
 	mov temp1, @0
 	mov temp2, @1
 	rcall divide
 	mov @0, temp1 ;store result in first register argument
 	mov @1, temp2 ;store remainder in second register argument
+	pop temp2
+	pop temp1
 .endmacro
 .macro do_to_ascii_number
+	push temp1
 	mov temp1, @0
-	clr temp2
 	rcall to_ascii_number
 	mov @0, temp1
+	pop temp1
 .endmacro
 .macro lcd_set
 	sbi PORTA, @0
 .endmacro
 .macro lcd_clr
 	cbi PORTA, @0
+.endmacro
+.macro do_request_lvl
+    ldi temp1, @0 ;temp2 is the target_lvl
+	ldi temp2, 1 ;temp2 is the requested_flag
+    call flag_lvl
+.endmacro
+.macro do_unrequest_lvl
+    ldi temp1, @0 ;temp1 is the target_lvl
+	ldi temp2, 0 ;temp2 is the requested_flag
+    call flag_lvl
+.endmacro
+.macro do_display_lift_lcd
+    call display_lift_lcd
 .endmacro
 
 
@@ -87,11 +115,30 @@ RESET:
 
 	out PORTC, temp1
 
-	do_lcd_command 0b00000001 ; clear display
+	rcall reset_lift
+
+	
+
+	;Lift testing
+	do_request_lvl 0
+
+    do_request_lvl 1
+
+    do_request_lvl 3
+	do_unrequest_lvl 3
+    
+    do_request_lvl 5
+	;put break point on next line, use emulator to test should show 1100010000
+
+	do_display_lift_lcd
+
+	;LCD testing
+
+	;do_lcd_command 0b00000001 ; clear display
 	ldi r21, 23
 	ldi r22, 4
 
-
+	/*
 	do_divide r21, r22
 	do_lcd_number r21
 	do_lcd_data '|'
@@ -101,6 +148,9 @@ RESET:
 	do_lcd_data '|'
 	do_lcd_number r22
 	do_lcd_data '|'
+	*/
+
+	
 
 	out PORTC, r22
 
@@ -278,6 +328,86 @@ lcd_number_return:
 	ret
 
 to_ascii_number:
+	push temp2
 	ldi temp2, 48
 	add temp1, temp2
+	pop temp2
+	ret
+
+flag_lvl:
+    push YL
+    push YH
+	push temp_counter
+	push temp2
+    ldi YL, 0 ; make Y point to the first address of the requested_lift registers
+    ldi YH, 0
+    clr temp_counter
+flag_lvl_iterate:
+    cp temp_counter, temp1 ;temp1 is the target_lvl
+    breq flag_lvl_return
+    ld temp2, Y+ ;temp2 stores the current requested status of the level
+    inc temp_counter
+    rjmp flag_lvl_iterate
+flag_lvl_return: 
+	pop temp2 ;pop off the requested_flag value
+    st Y, temp2 ; flag the register as "requested"
+	pop temp_counter
+    pop YH
+    pop YL
+    ret
+
+display_lift_lcd:
+	do_lcd_command 0b00000001
+	push YL
+    push YH
+	push temp_counter
+	push temp1
+	push temp2
+	ldi temp1, MAX_LVLS ;10 is the number of lvls
+	clr temp_counter
+	ldi YL, 0 ; make Y point to the first address of the requested_lift registers
+    ldi YH, 0
+display_lift_lcd_iterate:
+	;loop through and print lcd display
+    cp temp_counter, temp1 ;temp1 is MAX_LVLS = 10
+    brge display_lift_lcd_return
+    ld temp2, Y+ ;temp2 stores the current requested status of the level
+    inc temp_counter
+	;mov temp2, temp_counter
+	do_to_ascii_number temp2
+	do_lcd_data_r temp2
+    rjmp display_lift_lcd_iterate
+display_lift_lcd_return:
+	do_lcd_data 'T'
+	pop temp2
+	pop temp1
+	pop temp_counter
+	pop YH
+    pop YL
+	ret
+
+reset_lift:
+	push YL
+    push YH
+	push temp_counter
+	push temp1
+	push temp2
+	ldi temp1, MAX_LVLS ;10 is the number of lvls
+	clr temp2
+	clr temp_counter
+	ldi YL, 0 ; make Y point to the first address of the requested_lift registers
+    ldi YH, 0
+
+reset_lift_iterate:
+	cp temp_counter, temp1 ;temp1 is MAX_LVLS = 10
+	brge reset_lift_return
+	st Y+, temp2
+	rjmp reset_lift_iterate
+
+reset_lift_return:
+	pop temp2
+	pop temp1
+	pop temp_counter
+	pop YH
+    pop YL
 	ret
