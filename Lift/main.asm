@@ -7,9 +7,9 @@
 
 .def temp1=r16
 .def temp2=r17
-.def temp3=r18
-.def temp4=r19
-.def temp5=r20
+.def current_lvl = r18
+.def target_lvl = r19
+.def direction = r20
 
 .def row = r21 ; current row number
 .def col = r22 ; current column number
@@ -27,6 +27,7 @@
 .equ LCD_BE = 4
 
 .equ MAX_LVLS = 10
+.equ MIN_LVLS = 0
 
 .equ F_CPU = 16000000
 .equ DELAY_1MS = F_CPU / 4 / 1000 - 4
@@ -89,6 +90,11 @@
 	ldi temp2, 1 ;temp2 is the requested_flag
     call flag_lvl
 .endmacro
+.macro do_request_lvl_r
+    mov temp1, @0 ;temp2 is the target_lvl
+	ldi temp2, 1 ;temp2 is the requested_flag
+    call flag_lvl
+.endmacro
 .macro do_unrequest_lvl
     ldi temp1, @0 ;temp1 is the target_lvl
 	ldi temp2, 0 ;temp2 is the requested_flag
@@ -117,8 +123,6 @@ RESET:
 
 	rcall reset_lift
 
-	
-
 	;Lift testing
 	do_request_lvl 0
 
@@ -129,6 +133,8 @@ RESET:
     
     do_request_lvl 5
 	;put break point on next line, use emulator to test should show 1100010000
+
+	ldi current_lvl, 5
 
 	do_display_lift_lcd
 
@@ -229,6 +235,8 @@ zero:
 
 convert_end:
 	out PORTC, temp1 ; Write value to PORTC
+	do_request_lvl_r temp1
+	do_display_lift_lcd
 	jmp main ; Restart main loop
 
 lcd_command:
@@ -283,8 +291,6 @@ delayloop_1ms:
 	pop r25
 	pop r24
 	ret
-
-
 
 divide:
 	push temp_counter
@@ -370,15 +376,28 @@ display_lift_lcd:
 display_lift_lcd_iterate:
 	;loop through and print lcd display
     cp temp_counter, temp1 ;temp1 is MAX_LVLS = 10
-    brge display_lift_lcd_return
+    brge display_current_lvl
     ld temp2, Y+ ;temp2 stores the current requested status of the level
     inc temp_counter
 	;mov temp2, temp_counter
 	do_to_ascii_number temp2
 	do_lcd_data_r temp2
     rjmp display_lift_lcd_iterate
-display_lift_lcd_return:
+
+display_current_lvl:
 	do_lcd_data 'T'
+	do_lcd_command 0b11000000; shift to bottom lcd, can't find this in documentation?
+	clr temp_counter
+	
+display_current_lvl_iterate:
+	cp temp_counter, current_lvl
+	brge display_lift_lcd_return
+	do_lcd_data ' '
+	inc temp_counter
+	rjmp display_current_lvl_iterate
+
+display_lift_lcd_return:
+	do_lcd_data 'C'
 	pop temp2
 	pop temp1
 	pop temp_counter
@@ -401,7 +420,7 @@ reset_lift:
 reset_lift_iterate:
 	cp temp_counter, temp1 ;temp1 is MAX_LVLS = 10
 	brge reset_lift_return
-	st Y+, temp2
+	st Y+, temp2 ;set the register to 0
 	rjmp reset_lift_iterate
 
 reset_lift_return:
@@ -410,4 +429,62 @@ reset_lift_return:
 	pop temp_counter
 	pop YH
     pop YL
+	ret
+
+;TODO: no_requests situation
+;TODO: unrequest current_lvl if target_lvl = current_lvl
+update_target_lvl:
+	push YL
+    push YH
+	push temp_counter
+	push temp1
+
+update_target_lvl_reset:
+	mov temp_counter, current_lvl
+	mov r28, current_lvl ; make Y point to the first address of the requested_lift registers, 
+    clr r29	; WARNING IF WE CHOOSE ANOTHER STARTING ADDRESS FOR requested_lvls, we can't do this
+	
+	ldi temp1, 1
+	cpse direction, temp1
+	inc r28 ;if scanning down, increment Y first, since -Y decrements before loading value
+	
+	cpi direction, 0
+	breq update_target_lvl_scandown
+
+update_target_lvl_scanup: 
+	ld temp1, Y+ ;get the requested_flag
+	cpi temp1, 1 ;if 1, update target_lvl
+	breq update_target_lvl_return
+	inc temp_counter
+	ldi temp1, MAX_LVLS
+	cp temp_counter, temp1
+	brge update_target_lvl_scanother
+	rjmp update_target_lvl_scanup
+
+update_target_lvl_scandown:
+	ld temp1, -Y ;get the requested_flag
+	cpi temp1, 1 ;if 1, update target_lvl
+	breq update_target_lvl_return
+	dec temp_counter
+	ldi temp1, MIN_LVLS
+	cp temp_counter, temp1
+	brlt update_target_lvl_scanother
+	rjmp update_target_lvl_scandown
+
+update_target_lvl_scanother:
+	clr temp_counter
+	cpse direction, temp_counter
+	ldi temp1, 0
+	inc temp_counter
+	cpse direction, temp_counter
+	ldi temp1, 1
+	mov direction, temp1
+	rjmp update_target_lvl_reset
+
+update_target_lvl_return:
+	mov target_lvl, temp_counter
+	pop temp1
+	pop temp_counter
+	pop YH
+	pop YL
 	ret
