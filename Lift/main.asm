@@ -86,22 +86,37 @@
 	cbi PORTA, @0
 .endmacro
 .macro do_request_lvl
+	push temp1
+	push temp2
     ldi temp1, @0 ;temp2 is the target_lvl
 	ldi temp2, 1 ;temp2 is the requested_flag
     call flag_lvl
+	pop temp2
+	pop temp1
 .endmacro
 .macro do_request_lvl_r
+	push temp1
+	push temp2
     mov temp1, @0 ;temp2 is the target_lvl
 	ldi temp2, 1 ;temp2 is the requested_flag
     call flag_lvl
+	pop temp2
+	pop temp1
 .endmacro
 .macro do_unrequest_lvl
+	push temp1
+	push temp2
     ldi temp1, @0 ;temp1 is the target_lvl
 	ldi temp2, 0 ;temp2 is the requested_flag
     call flag_lvl
+	pop temp2
+	pop temp1
 .endmacro
 .macro do_display_lift_lcd
     call display_lift_lcd
+.endmacro
+.macro do_update_target_lvl
+	call update_target_lvl
 .endmacro
 .macro clear
 	push YL
@@ -118,6 +133,7 @@
 .endmacro
 
 .dseg
+.org 0x0200
 SecondCounter:
 	.byte 2 ; Two-byte counter for counting seconds.
 TempCounter:
@@ -164,11 +180,11 @@ RESET:
 
     do_request_lvl 3
 	do_unrequest_lvl 3
-    
-    do_request_lvl 5
 	;put break point on next line, use emulator to test should show 1100010000
 
-	ldi current_lvl, 5
+	ldi current_lvl, 8
+	ldi target_lvl, 8
+	;rcall update_target_lvl
 
 	do_display_lift_lcd
 
@@ -190,6 +206,7 @@ RESET:
 	do_lcd_data '|'
 	*/
 
+	/* THERE's a BUG HERE
 	clear TempCounter ; Initialize the temporary counter to 0
 	clear SecondCounter ; Initialize the second counter to 0
 	ldi temp1, 0b00000000
@@ -199,6 +216,7 @@ RESET:
 	ldi temp1, 1<<TOIE0 ; = 128 microseconds
 	sts TIMSK0, temp1 ; T/C0 interrupt enable
 	sei ; Enable global interrupt
+	*/
 
 	out PORTC, r22
 	rjmp main
@@ -220,7 +238,11 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	cpc r25, temp1
 	brne NotSecond ;if the interval does not coincide with a second interval, then increment and return
 	;com leds ;one's compliment
-	out PORTC, current_lvl
+
+	;move lift
+	;rcall move_lift
+
+	out PORTC, target_lvl
 	clear TempCounter ; Reset the temporary counter.
 	; Load the value of the second counter.
 	lds r24, SecondCounter
@@ -321,6 +343,7 @@ zero:
 convert_end:
 	out PORTC, temp1 ; Write value to PORTC
 	do_request_lvl_r temp1
+	do_update_target_lvl
 	do_display_lift_lcd
 	jmp main ; Restart main loop
 
@@ -463,14 +486,20 @@ display_lift_lcd_iterate:
     cp temp_counter, temp1 ;temp1 is MAX_LVLS = 10
     brge display_current_lvl
     ld temp2, Y+ ;temp2 stores the current requested status of the level
-    inc temp_counter
+    
+	;if target_lvl = tempcounter
+	cp target_lvl, temp_counter
+	breq display_lift_lcd_flag_target
+
 	;mov temp2, temp_counter
+display_lift_lcd_one_char:
+	inc temp_counter
 	do_to_ascii_number temp2
 	do_lcd_data_r temp2
     rjmp display_lift_lcd_iterate
 
 display_current_lvl:
-	do_lcd_data 'T'
+	do_lcd_data 'E'
 	do_lcd_command 0b11000000; shift to bottom lcd, can't find this in documentation?
 	clr temp_counter
 	
@@ -489,6 +518,10 @@ display_lift_lcd_return:
 	pop YH
     pop YL
 	ret
+
+display_lift_lcd_flag_target:
+	ldi temp2, 2
+	rjmp display_lift_lcd_one_char
 
 reset_lift:
 	push YL
@@ -572,4 +605,18 @@ update_target_lvl_return:
 	pop temp_counter
 	pop YH
 	pop YL
+	ret
+
+move_lift:
+	push temp1
+move_lift_iterate:
+	clr temp1
+	cpse direction, temp1
+	inc current_lvl
+	dec temp1
+	cpse direction, temp1
+	dec current_lvl
+	do_display_lift_lcd
+move_lift_return:
+	pop temp1
 	ret
