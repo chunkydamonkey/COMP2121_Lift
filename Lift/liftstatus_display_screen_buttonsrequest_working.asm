@@ -103,41 +103,7 @@
 .macro do_display_lift_lcd
     call display_lift_lcd
 .endmacro
-.macro clear
-	push YL
-	push YH
-	push temp1
-	ldi YL, low(@0) ; load the memory address to Y
-	ldi YH, high(@0)
-	clr temp1
-	st Y+, temp1 ; clear the two bytes at @0 in SRAM
-	st Y, temp1
-	pop temp1
-	pop YH
-	pop YL
-.endmacro
 
-.dseg
-SecondCounter:
-	.byte 2 ; Two-byte counter for counting seconds.
-TempCounter:
-	.byte 2 ; Temporary counter. Used to determine
-
-; if one second has passed
-.cseg
-.org 0x0000
-
-jmp RESET
-jmp DEFAULT ; No handling for IRQ0.
-jmp DEFAULT ; No handling for IRQ1.
-
-.org OVF0addr
-jmp Timer0OVF ; Jump to the interrupt handler for
-; Timer0 overflow.
-jmp DEFAULT ; default service for all other interrupts.
-
-DEFAULT: 
-	reti ; no service
 
 RESET:
 	ldi temp1, low(RAMEND) ; initialize the stack
@@ -190,60 +156,9 @@ RESET:
 	do_lcd_data '|'
 	*/
 
-	clear TempCounter ; Initialize the temporary counter to 0
-	clear SecondCounter ; Initialize the second counter to 0
-	ldi temp1, 0b00000000
-	out TCCR0A, temp1
-	ldi temp1, 0b00000010
-	out TCCR0B, temp1 ; Prescaling value=8
-	ldi temp1, 1<<TOIE0 ; = 128 microseconds
-	sts TIMSK0, temp1 ; T/C0 interrupt enable
-	sei ; Enable global interrupt
+	
 
 	out PORTC, r22
-	rjmp main
-
-Timer0OVF: ; interrupt subroutine to Timer0
-	in temp1, SREG
-	push temp1 ; Prologue starts.
-	push temp2
-	push YH ; Save all conflict registers in the prologue.
-	push YL
-	push r25
-	push r24 ; Prologue ends.
-	; Load the value of the temporary counter.
-	lds r24, TempCounter
-	lds r25, TempCounter+1
-	adiw r25:r24, 1 ; Increase the temporary counter by one.
-	cpi r24, low(7812) ; Check if (r25:r24) = 7812
-	ldi temp1, high(7812) ; 7812 = 106/128
-	cpc r25, temp1
-	brne NotSecond ;if the interval does not coincide with a second interval, then increment and return
-	;com leds ;one's compliment
-	out PORTC, current_lvl
-	clear TempCounter ; Reset the temporary counter.
-	; Load the value of the second counter.
-	lds r24, SecondCounter
-	lds r25, SecondCounter+1
-	adiw r25:r24, 1 ; Increase the second counter by one.
-	sts SecondCounter, r24
-	sts SecondCounter+1, r25
-	rjmp EndIF
-
-NotSecond:
-	; Store the new value of the temporary counter.
-	sts TempCounter, r24
-	sts TempCounter+1, r25
-
-EndIF:
-	pop r24 ; Epilogue starts;
-	pop r25 ; Restore all conflict registers from the stack.
-	pop YL
-	pop YH
-	pop temp2
-	pop temp1
-	out SREG, temp1 ; WHAT DOES THIS DO??????
-	reti ; Return from the interrupt.
 
 main:
 	ldi cmask, INITCOLMASK ; initial column mask
