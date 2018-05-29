@@ -216,12 +216,15 @@ RESET:
 	ldi temp1, 1<<TOIE0 ; = 128 microseconds
 	sts TIMSK0, temp1 ; T/C0 interrupt enable
 	sei ; Enable global interrupt
+
+	TODO: use a button to iterate the lift move <--------------------------------------------------------------------------
 	*/
 
 	out PORTC, r22
 	rjmp main
 
 Timer0OVF: ; interrupt subroutine to Timer0
+	push temp1
 	in temp1, SREG
 	push temp1 ; Prologue starts.
 	push temp2
@@ -264,7 +267,8 @@ EndIF:
 	pop YH
 	pop temp2
 	pop temp1
-	out SREG, temp1 ; WHAT DOES THIS DO??????
+	out SREG, temp1
+	pop temp1
 	reti ; Return from the interrupt.
 
 main:
