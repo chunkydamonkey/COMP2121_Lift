@@ -516,9 +516,13 @@ display_current_lvl_iterate:
 
 display_lift_lcd_return:
 
-	mov temp2, direction
-	do_to_ascii_number temp2
-	do_lcd_data_r temp2
+	ldi temp2, 1
+	cpse direction, temp2
+	ldi temp1, '<'
+	clr temp2
+	cpse direction, temp2
+	ldi temp1, '>'
+	do_lcd_data_r temp1
 	pop temp2
 	pop temp1
 	pop temp_counter
