@@ -174,17 +174,17 @@ RESET:
 	rcall reset_lift
 
 	;Lift testing
-	do_request_lvl 0
+	;do_request_lvl 0
 
-    do_request_lvl 1
+    ;do_request_lvl 1
 
-    do_request_lvl 3
-	do_unrequest_lvl 3
+    ;do_request_lvl 3
+	;do_unrequest_lvl 3
 	;put break point on next line, use emulator to test should show 1100010000
 
-	ldi current_lvl, 8
-	ldi target_lvl, 8
-	;rcall update_target_lvl
+	ldi current_lvl, 5
+	ldi target_lvl, 5
+	do_update_target_lvl
 
 	do_display_lift_lcd
 
@@ -515,7 +515,10 @@ display_current_lvl_iterate:
 	rjmp display_current_lvl_iterate
 
 display_lift_lcd_return:
-	do_lcd_data 'C'
+
+	mov temp2, direction
+	do_to_ascii_number temp2
+	do_lcd_data_r temp2
 	pop temp2
 	pop temp1
 	pop temp_counter
@@ -560,6 +563,8 @@ update_target_lvl:
     push YH
 	push temp_counter
 	push temp1
+	push temp2
+	clr temp2
 
 update_target_lvl_reset:
 	mov temp_counter, current_lvl
@@ -594,6 +599,11 @@ update_target_lvl_scandown:
 	rjmp update_target_lvl_scandown
 
 update_target_lvl_scanother:
+
+	cpi temp2, 1
+	breq update_target_lvl_return_no_target
+	inc temp2 ; flag looped once
+
 	clr temp_counter
 	cpse direction, temp_counter
 	ldi temp1, 0
@@ -603,14 +613,20 @@ update_target_lvl_scanother:
 	mov direction, temp1
 	rjmp update_target_lvl_reset
 
+update_target_lvl_return_no_target:
+	clr temp_counter
+	dec temp_counter ;set as -1
+
 update_target_lvl_return:
 	mov target_lvl, temp_counter
+	pop temp2
 	pop temp1
 	pop temp_counter
 	pop YH
 	pop YL
 	ret
 
+;TODO
 move_lift:
 	push temp1
 move_lift_iterate:
