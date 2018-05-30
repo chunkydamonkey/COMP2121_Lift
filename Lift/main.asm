@@ -206,7 +206,6 @@ RESET:
 	do_lcd_data '|'
 	*/
 
-	/* THERE's a BUG HERE
 	clear TempCounter ; Initialize the temporary counter to 0
 	clear SecondCounter ; Initialize the second counter to 0
 	ldi temp1, 0b00000000
@@ -217,6 +216,7 @@ RESET:
 	sts TIMSK0, temp1 ; T/C0 interrupt enable
 	sei ; Enable global interrupt
 
+	/*
 	TODO: use a button to iterate the lift move <--------------------------------------------------------------------------
 	*/
 
