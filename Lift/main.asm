@@ -7,9 +7,10 @@
 
 .def temp1=r16
 .def temp2=r17
-.def current_lvl = r18
+.def current_lvl = r14
 .def target_lvl = r19
 .def direction = r20
+.def lift_status = r18
 
 .def row = r21 ; current row number
 .def col = r22 ; current column number
@@ -28,6 +29,15 @@
 
 .equ MAX_LVLS = 10
 .equ MIN_LVLS = 0
+.equ LSTATUS_EMERGENCY = 'E'
+.equ LSTATUS_MOVING = 'M'
+.equ LSTATUS_D_OPENING = 'O'
+.equ LSTATUS_D_OPEN_WAIT = 'W'
+.equ LSTATUS_D_CLOSING = 'C'
+.equ LSTATUS_IDLE = 'I'
+
+;"Emergency"
+;Call 000
 
 .equ F_CPU = 16000000
 .equ DELAY_1MS = F_CPU / 4 / 1000 - 4
@@ -150,6 +160,10 @@ SecondCounter:
 	.byte 2 ; Two-byte counter for counting seconds.
 TempCounter:
 	.byte 2 ; Temporary counter. Used to determine
+EMERGENCY_MSG_L1:
+	.db "Emergency"
+EMERGENCY_MSG_L2:
+	.db "Call 000"
 
 ; if one second has passed
 .cseg
@@ -194,8 +208,9 @@ RESET:
 	;do_unrequest_lvl 3
 	;put break point on next line, use emulator to test should show 1100010000
 
-	ldi current_lvl, 5
+	clr current_lvl
 	ldi target_lvl, 5
+	ldi lift_status, 'I'
 	do_update_target_lvl
 
 	do_display_lift_lcd
@@ -248,17 +263,65 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	lds r24, TempCounter
 	lds r25, TempCounter+1
 	adiw r25:r24, 1 ; Increase the temporary counter by one.
-	cpi r24, low(7812) ; Check if (r25:r24) = 7812
-	ldi temp1, high(7812) ; 7812 = 106/128
+	cpi r24, low(1953) ; Check if (r25:r24) = 7812
+	ldi temp1, high(1953) ; 7812 = 106/128
 	cpc r25, temp1
 	brne NotSecond ;if the interval does not coincide with a second interval, then increment and return
 	;com leds ;one's compliment
 
-	;move lift
-	;rcall move_lift
-
 	out PORTC, target_lvl
+	;---------------------------------
 	do_move_lift
+
+	
+	/*
+	at the one second interval,
+
+	if state = 'MOVE'
+		do_move_lift
+		service_current_lvl
+		state = IDLE
+		update_target_lvl, sets I or M if there is a job
+	if state = 'OPEN'
+		if opening_counter != 1
+			inc opening_counter
+		else
+			clr opening_counter
+			StopMotor()
+			changeState(WAIT)
+	if state = 'WAIT'
+		if wait_counter != 3
+			inc wait_counter
+		else
+			clr wait_counter
+			changeState(CLOSING)
+			StartMotor()
+	if state = 'C'
+		if close_counter != 1
+			inc close_counter
+		else
+			clr close_counter
+			StopMotor()
+			service_current_lvl
+			state = IDLE
+			update_target_lvl, sets direction, sets I or M if there is a job
+	if state = 'E'
+		if current_lvl != 0
+		do_move_lift()
+		else opendoor()
+
+	changeState(var arg) { we need clear second timer everytime a state is changed.
+		clr secondTimer
+		state = arg
+	}
+
+	update_target_lvl <-- need to modify this, if state = IDLE, reset secondTimer
+
+	*/
+	
+
+
+	;-----------------------------------
 
 	clear TempCounter ; Reset the temporary counter.
 	; Load the value of the second counter.
@@ -354,6 +417,8 @@ symbols:
 
 star:
 	ldi temp1, '*' ; Set to star
+	;emergency
+	rcall emergency
 	jmp convert_end
 
 zero:
@@ -518,7 +583,7 @@ display_lift_lcd_one_char:
     rjmp display_lift_lcd_iterate
 
 display_current_lvl:
-	do_lcd_data 'E'
+	do_lcd_data_r lift_status
 	do_lcd_command 0b11000000; shift to bottom lcd, can't find this in documentation?
 	clr temp_counter
 	
@@ -645,10 +710,9 @@ update_target_lvl_return:
 	pop YL
 	ret
 
-;TODO
 move_lift:
 	push temp1
-	cpi target_lvl, -1
+	cpi target_lvl, -1  ;guard
 	breq move_lift_return
 
 move_lift_iterate:
@@ -671,5 +735,33 @@ service_lvl:
 	;open, wait, close
 	;if current_lvl = target_lvl 
 	do_unrequest_lvl_r current_lvl
+	;reset second timer
+	;set doorStatus = opening
+	;inc door_time_counter
+	;inc door_time_counter
+
+	;set doorStatus = open_wait
+	;inc door_time_counter
+	;inc door_time_counter
+	;inc door_time_counter
+
+	;set doorStatus = closing
+	;inc door_time_counter
+	;inc door_time_counter
+
+
 	do_update_target_lvl
 	rjmp move_lift_return
+
+emergency:
+	ldi lift_status, 'E'
+	;if door_status = 'O' close door
+	;if door_status = 'W' close door
+
+	;ignore all keypad requests
+	;save requested_lvls state
+
+	;do_reset_lift ;set all requested lvls to 0
+	;set target_lvl = 0
+
+	ret
