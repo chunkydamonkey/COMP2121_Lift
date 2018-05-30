@@ -103,6 +103,15 @@
 	pop temp2
 	pop temp1
 .endmacro
+.macro do_unrequest_lvl_r
+	push temp1
+	push temp2
+    mov temp1, @0 ;temp1 is the target_lvl
+	ldi temp2, 0 ;temp2 is the requested_flag
+    call flag_lvl
+	pop temp2
+	pop temp1
+.endmacro
 .macro do_unrequest_lvl
 	push temp1
 	push temp2
@@ -117,6 +126,9 @@
 .endmacro
 .macro do_update_target_lvl
 	call update_target_lvl
+.endmacro
+.macro do_move_lift
+	call move_lift
 .endmacro
 .macro clear
 	push YL
@@ -246,6 +258,8 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	;rcall move_lift
 
 	out PORTC, target_lvl
+	do_move_lift
+
 	clear TempCounter ; Reset the temporary counter.
 	; Load the value of the second counter.
 	lds r24, SecondCounter
@@ -335,6 +349,7 @@ symbols:
 	cpi col, 1 ; or if we have zero
 	breq zero
 	ldi temp1, '#' ; if not we have hash
+	do_move_lift
 	jmp convert_end
 
 star:
@@ -633,14 +648,28 @@ update_target_lvl_return:
 ;TODO
 move_lift:
 	push temp1
+	cpi target_lvl, -1
+	breq move_lift_return
+
 move_lift_iterate:
 	clr temp1
 	cpse direction, temp1
 	inc current_lvl
-	dec temp1
+	ldi temp1, 1
 	cpse direction, temp1
 	dec current_lvl
-	do_display_lift_lcd
+
+	cp current_lvl, target_lvl
+	breq service_lvl
+
 move_lift_return:
+	do_display_lift_lcd
 	pop temp1
 	ret
+
+service_lvl:
+	;open, wait, close
+	;if current_lvl = target_lvl 
+	do_unrequest_lvl_r current_lvl
+	do_update_target_lvl
+	rjmp move_lift_return
