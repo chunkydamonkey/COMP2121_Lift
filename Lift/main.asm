@@ -380,6 +380,12 @@ lift_one_second_move:
 
 lift_one_second_move_iterate:
 	clr lift_counter
+	cp current_lvl, target_lvl
+	brne lift_one_second_move_iterate2
+	cpi lift_state, LSTATUS_MOVING
+	brne lift_one_second_return
+
+lift_one_second_move_iterate2:
 	do_move_lift
 	cpse current_lvl, target_lvl
 	jmp lift_one_second_return
