@@ -868,11 +868,12 @@ display_lift_led:
 	cpi lift_state, LSTATUS_D_CLOSING
 	breq display_lift_led_return
 	
-	ldi temp1, 0b00001111 ;up
-	cpi lift_state, LSTATUS_MOVING
+	;else moving
+	ldi temp1, 0b00001111 ;down
+	tst direction
 	breq display_lift_led_return
 
-	ldi temp1, 0xFF
+	ldi temp1, 0b11110000 ;up
 
 display_lift_led_return:
 	out PORTC, temp1
