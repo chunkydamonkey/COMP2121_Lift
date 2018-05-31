@@ -49,6 +49,7 @@
 
 .equ F_CPU = 16000000
 .equ DELAY_1MS = F_CPU / 4 / 1000 - 4
+.equ DELAY_1S = F_CPU / 4 / 1 - 4
 ; 4 cycles per iteration - setup/call-return overhead
 
 .macro do_lcd_command
@@ -190,6 +191,8 @@ SecondCounter:
 	.byte 2 ; Two-byte counter for counting seconds.
 TempCounter:
 	.byte 2 ; Temporary counter. Used to determine
+InterruptCounter:
+	.byte 2
 EMERGENCY_MSG_L1:
 	.db "Emergency"
 EMERGENCY_MSG_L2:
@@ -200,8 +203,10 @@ EMERGENCY_MSG_L2:
 .org 0x0000
 
 jmp RESET
-jmp DEFAULT ; No handling for IRQ0.
-jmp DEFAULT ; No handling for IRQ1.
+.org 0x0002
+jmp INT0_int
+.org 0x0004 ;??
+jmp INT1_int
 
 .org OVF0addr
 jmp Timer0OVF ; Jump to the interrupt handler for
@@ -224,6 +229,8 @@ RESET:
 	out DDRA, temp1
 	out DDRC, temp1
 	out DDRF, temp1
+	out DDRG, temp1
+	out DDRE, temp1
 
 	out PORTC, temp1
 	ldi temp1, 0b00000000
@@ -268,19 +275,17 @@ RESET:
 	ldi r21, 23
 	ldi r22, 4
 
-	/*
-	do_divide r21, r22
-	do_lcd_number r21
-	do_lcd_data '|'
-	do_lcd_number r22
-	do_lcd_data '|'
-	do_lcd_number r21
-	do_lcd_data '|'
-	do_lcd_number r22
-	do_lcd_data '|'
-	*/
+	in temp1, EIMSK
+	ori temp1, 0b00000011
+	out EIMSK, temp1
+	;set 0b00000111 into EIMSK to enable int0,1 interrupts
 
-	
+	lds temp1, EICRA
+	ori temp1, 0b00001100
+	sts EICRA, temp1
+	;set 0b00111111 into EICRA to set int1 interrupt to trigger on rising edge , INT0 interrupt to trigger when pressed down
+
+	;Initialize timer
 	clear TempCounter ; Initialize the temporary counter to 0
 	clear SecondCounter ; Initialize the second counter to 0
 	ldi temp1, 0b00000000
@@ -297,6 +302,81 @@ RESET:
 
 	;out PORTC, r22
 	rjmp main
+
+INT0_int: ; open while pressed down !!
+	do_strobe_on
+	;ser temp1
+	;out PORTC, temp1
+	push temp1
+	in temp1, SREG
+	push temp1 ; Prologue starts.
+	push temp2
+	push YH ; Save all conflict registers in the prologue.
+	push YL
+	push r25
+	push r24 ; Prologue ends.
+
+	cpi emergency_state, L_EMERGENCY
+	breq EndINT0_1
+
+	cpi lift_state, LSTATUS_MOVING
+	breq EndINT0_1
+
+	do_request_lvl_r current_lvl
+	cp current_lvl, target_lvl
+	brne EndINT0_1
+
+	call INT_open_door
+	jmp EndINT0_1
+
+INT1_int: ; open while pressed down !!
+	do_strobe_off
+	;ser temp1
+	;out PORTC, temp1
+	push temp1
+	in temp1, SREG
+	push temp1 ; Prologue starts.
+	push temp2
+	push YH ; Save all conflict registers in the prologue.
+	push YL
+	push r25
+	push r24 ; Prologue ends.
+
+	cpi emergency_state, L_EMERGENCY
+	breq EndINT0_1
+
+	cpi lift_state, LSTATUS_MOVING
+	breq EndINT0_1
+
+	do_request_lvl_r current_lvl
+	cp current_lvl, target_lvl
+	brne EndINT0_1
+
+	call INT_close_door
+	jmp EndINT0_1
+
+EndINT0_1:
+	pop r24 ; Epilogue starts;
+	pop r25 ; Restore all conflict registers from the stack.
+	pop YL
+	pop YH
+	pop temp2
+	pop temp1
+	out SREG, temp1
+	pop temp1
+	reti ; Return from the interrupt.
+
+INT_open_door:
+	ldi lift_state, LSTATUS_D_OPENING
+	do_display_lift
+	ret
+
+INT_close_door:
+	cpi lift_state, LSTATUS_D_OPEN_WAIT
+	brne EndINT0_1
+	ldi lift_state, LSTATUS_D_CLOSING
+	do_display_lift
+	ret
 
 Timer0OVF: ; interrupt subroutine to Timer0
 	push temp1
@@ -979,9 +1059,7 @@ update_target_lvl_return_target:
 	breq update_target_lvl_return
 	cpi lift_state, LSTATUS_D_CLOSING
 	breq update_target_lvl_return
-
 	ldi lift_state, LSTATUS_MOVING
-
 
 update_target_lvl_return:
 	pop temp2
@@ -1009,30 +1087,4 @@ move_lift_iterate:
 move_lift_return:
 	do_display_lift
 	pop temp1
-	ret
-
-service_lvl:
-	;open, wait, close
-	;if current_lvl = target_lvl 
-	;do_unrequest_lvl_r current_lvl
-	;reset second timer
-	;set doorStatus = opening
-	;inc door_time_counter
-	;inc door_time_counter
-
-	;set doorStatus = open_wait
-	;inc door_time_counter
-	;inc door_time_counter
-	;inc door_time_counter
-
-	;set doorStatus = closing
-	;inc door_time_counter
-	;inc door_time_counter
-
-
-	do_update_target_lvl
-	rjmp move_lift_return
-
-set_waiting:
-	ldi lift_state, LSTATUS_D_OPEN_WAIT
 	ret
