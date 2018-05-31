@@ -3,20 +3,24 @@
 ; LED bar
 .include "m2560def.inc"
 
-.def debounce = r11
+.def row = r10
+.def col = r11
 .def direction = r12
 .def lift_counter = r13
+.def current_lvl = r14
 .def temp_counter = r15
 
 .def temp1=r16
 .def temp2=r17
-.def current_lvl = r14
-.def target_lvl = r19
 .def lift_state = r18
+.def target_lvl = r19
 .def emergency_state = r20
 
-.def row = r21 ; current row number
-.def col = r22 ; current column number
+;.def row = r21 ; current row number
+;.def col = r22 ; current column number
+.def keypad_temp1 = r21
+.def keypad_temp2 = r22
+.def keypad_temp3 = r31
 .def rmask = r23 ; mask for current row during scan
 .def cmask = r24 ; mask for current column during scan
 
@@ -424,27 +428,33 @@ main:
 	clr col ; initial column
 
 colloop:
-	cpi col, 4
+	push keypad_temp3
+	ldi keypad_temp3, 4
+	cp col, keypad_temp3
+	pop keypad_temp3
 	breq main ; If all keys are scanned, repeat.
 	sts PORTL, cmask ; Otherwise, scan a column. out
-	ldi temp1, 0xFF ; Slow down the scan operation.
+	ldi keypad_temp1, 0xFF ; Slow down the scan operation.
 
 delay: 
-	dec temp1
+	dec keypad_temp1
 	brne delay
-	lds temp1, PINL ; Read PORTL in
-	andi temp1, ROWMASK ; Get the keypad output value
-	cpi temp1, 0xF ; Check if any row is low
+	lds keypad_temp1, PINL ; Read PORTL in
+	andi keypad_temp1, ROWMASK ; Get the keypad output value
+	cpi keypad_temp1, 0xF ; Check if any row is low
 	breq nextcol
 	; If yes, find which row is low
 	ldi rmask, INITROWMASK ; Initialize for row check
 	clr row ;
 	
 rowloop:
-	cpi row, 4
+	push keypad_temp3
+	ldi keypad_temp3, 4
+	cp row, keypad_temp3
+	pop keypad_temp3
 	breq nextcol ; the row scan is over.
-	mov temp2, temp1
-	and temp2, rmask ; check unmasked bit
+	mov keypad_temp2, keypad_temp1
+	and keypad_temp2, rmask ; check unmasked bit
 	breq convert
 	inc row
 	lsl rmask
@@ -458,23 +468,32 @@ nextcol: ; if row scan is over
 	jmp colloop ; go to the next column
 	
 convert:
-	cpi col, 3 ; If the pressed key in in col.3
+	push keypad_temp3
+	ldi keypad_temp3, 3
+	cp col, keypad_temp3
 	breq letters ; we have a letter
 	; If the key is not in col.3
-	cpi row, 3 ; If the key is in row3,
+	cp row, keypad_temp3 ; If the key is in row3,
+	pop keypad_temp3
 	breq symbols
-	mov temp1, row 
+	mov keypad_temp1, row 
 	; Otherwise we have a number in 1-9
-	lsl temp1
-	add temp1, row
-	add temp1, col ; temp1 = row*3 + col
-	inc temp1
+	cpi emergency_state, L_EMERGENCY
+	breq main
+
+	lsl keypad_temp1
+	add keypad_temp1, row
+	add keypad_temp1, col ; temp1 = row*3 + col
+	inc keypad_temp1
 	;subi temp1, -'1' ; Add the value of character ‘1’
 	jmp convert_end
 
 letters:
-	ldi temp1, 'A'
-	add temp1, row ; Get the ASCII value for the key
+	ldi keypad_temp1, 'A'
+	add keypad_temp1, row ; Get the ASCII value for the key
+
+	cpi emergency_state, L_EMERGENCY
+	breq main
 
 	cpi lift_state, LSTATUS_MOVING
 	breq convert_end
@@ -483,10 +502,10 @@ letters:
 	cp current_lvl, target_lvl
 	brne convert_end
 
-	cpi temp1, 'A'
+	cpi keypad_temp1, 'A'
 	breq open_door
 
-	cpi temp1, 'B'
+	cpi keypad_temp1, 'B'
 	breq close_door
 
 	jmp convert_end
@@ -500,14 +519,21 @@ close_door:
 	jmp convert_end
 
 symbols:
-	cpi col, 0 ; Check if we have a star
+	tst col ; Check if we have a star
 	breq star
-	cpi col, 1 ; or if we have zero
+
+	cpi emergency_state, L_EMERGENCY
+	breq star ;convert main
+
+	push keypad_temp3
+	ldi keypad_temp3, 1
+	cp col, keypad_temp3
+	pop keypad_temp3
 	breq zero
 	;ldi temp1, '#' ; if not we have hash
 	;rcall lift_one_second
-	do_update_target_lvl
-	jmp convert_end
+	;do_update_target_lvl
+	jmp convert_end_main
 
 star:
 	;ldi temp2, '*' ; Set to star
@@ -525,14 +551,14 @@ star_toggle_normal:
 	jmp convert_end_main
 
 zero:
-	clr temp1 ; Set to zero
+	clr keypad_temp1 ; Set to zero
 
 convert_end:
-	out PORTC, temp1 ; Write value to PORTC
+	;out PORTC, keypad_temp1 ; Write value to PORTC
 
-	do_request_lvl_r temp1
+	do_request_lvl_r keypad_temp1
 
-	cp temp1, current_lvl
+	cp keypad_temp1, current_lvl
 	brne convert_end_main 
 
 convert_end_doors_open:
