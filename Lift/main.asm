@@ -3,6 +3,8 @@
 ; LED bar
 .include "m2560def.inc"
 
+.def debounce = r11
+.def direction = r12
 .def lift_counter = r13
 .def temp_counter = r15
 
@@ -10,8 +12,8 @@
 .def temp2=r17
 .def current_lvl = r14
 .def target_lvl = r19
-.def direction = r20
 .def lift_state = r18
+.def emergency_state = r20
 
 .def row = r21 ; current row number
 .def col = r22 ; current column number
@@ -30,7 +32,8 @@
 
 .equ MAX_LVLS = 10
 .equ MIN_LVLS = 0
-.equ LSTATUS_EMERGENCY = 'E'
+.equ L_EMERGENCY = 'E'
+.equ L_NORMAL = 'N'
 .equ LSTATUS_MOVING = 'M'
 .equ LSTATUS_D_OPENING = 'O'
 .equ LSTATUS_D_OPEN_WAIT = 'W'
@@ -102,9 +105,9 @@
     ldi temp1, @0 ;temp2 is the target_lvl
 	ldi temp2, 1 ;temp2 is the requested_flag
     call flag_lvl
-	do_update_target_lvl
 	pop temp2
 	pop temp1
+	do_update_target_lvl
 .endmacro
 .macro do_request_lvl_r
 	push temp1
@@ -112,9 +115,9 @@
     mov temp1, @0 ;temp2 is the target_lvl
 	ldi temp2, 1 ;temp2 is the requested_flag
     call flag_lvl
-	do_update_target_lvl
 	pop temp2
 	pop temp1
+	do_update_target_lvl
 .endmacro
 .macro do_unrequest_lvl_r
 	push temp1
@@ -204,7 +207,10 @@ RESET:
 
 	out PORTC, temp1
 
+	;default states
 	rcall reset_lift
+	ldi temp1, L_NORMAL
+	mov emergency_state, temp1
 
 	;Lift testing
 	;do_request_lvl 0
@@ -216,18 +222,21 @@ RESET:
 	;put break point on next line, use emulator to test should show 1100010000
 
 	clr current_lvl
-	ldi temp1, 2
+	ldi temp1, 8
 	mov current_lvl, temp1
 
 	ldi target_lvl, -1
-	ldi lift_state, LSTATUS_IDLE
 
 	clr lift_counter
 
-	do_request_lvl 3
+	do_request_lvl 9
 
+	ldi lift_state, LSTATUS_IDLE
+
+	do_update_target_lvl
+
+	;ldi emergency_state, L_EMERGENCY
 	do_display_lift
-
 
 	;LCD testing
 
@@ -279,8 +288,8 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	lds r24, TempCounter
 	lds r25, TempCounter+1
 	adiw r25:r24, 1 ; Increase the temporary counter by one.
-	cpi r24, low(1953) ; Check if (r25:r24) = 7812
-	ldi temp1, high(1953) ; 7812 = 106/128 1953
+	cpi r24, low(7812) ; Check if (r25:r24) = 7812
+	ldi temp1, high(7812) ; 7812 = 106/128 1953
 	cpc r25, temp1
 	brne NotSecond ;if the interval does not coincide with a second interval, then increment and return
 	;com leds ;one's compliment
@@ -292,54 +301,6 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	;do_display_lift_lcd
 
 	rcall lift_one_second
-	
-	
-	/*
-	at the one second interval,
-
-	if state = 'MOVE'
-		do_move_lift
-		service_current_lvl
-		state = IDLE
-		update_target_lvl, sets I or M if there is a job
-	if state = 'OPEN'
-		if opening_counter != 1
-			inc opening_counter
-		else
-			clr opening_counter
-			StopMotor()
-			changeState(WAIT)
-	if state = 'WAIT'
-		if wait_counter != 3
-			inc wait_counter
-		else
-			clr wait_counter
-			changeState(CLOSING)
-			StartMotor()
-	if state = 'C'
-		if close_counter != 1
-			inc close_counter
-		else
-			clr close_counter
-			StopMotor()
-			service_current_lvl
-			state = IDLE
-			update_target_lvl, sets direction, sets I or M if there is a job
-	if state = 'E'
-		if current_lvl != 0
-		do_move_lift()
-		else opendoor()
-
-	changeState(var arg) { we need clear second timer everytime a state is changed.
-		clr secondTimer
-		state = arg
-	}
-
-	update_target_lvl <-- need to modify this, if state = IDLE, reset secondTimer
-
-	*/
-	
-
 
 	;-----------------------------------
 
@@ -374,6 +335,19 @@ lift_one_second:
 	cpse lift_state, temp2
 	inc lift_counter
 
+	cpi emergency_state, L_NORMAL
+	breq lift_one_second_normal
+
+lift_one_second_emergency:
+	ldi target_lvl, MIN_LVLS
+	clr direction
+	cpse current_lvl, target_lvl
+	ldi lift_state, LSTATUS_MOVING
+	jmp lift_one_second_normal
+
+lift_one_second_normal:
+	cpi lift_state, LSTATUS_IDLE
+	breq lift_one_second_idle
 	cpi lift_state, LSTATUS_MOVING
 	breq lift_one_second_move
 	cpi lift_state, LSTATUS_D_OPENING
@@ -383,6 +357,15 @@ lift_one_second:
 	cpi lift_state, LSTATUS_D_CLOSING
 	breq lift_one_second_close
 
+	jmp lift_one_second_return
+
+lift_one_second_idle:
+	cpi target_lvl, -1
+	breq lift_one_second_return
+	cpse target_lvl, current_lvl
+	ldi lift_state, LSTATUS_MOVING
+	cpse target_lvl, current_lvl
+	jmp lift_one_second_move
 	jmp lift_one_second_return
 
 lift_one_second_move:
@@ -413,6 +396,11 @@ lift_one_second_wait:
 	cp lift_counter, temp2
 	brlt lift_one_second_return
 	ldi lift_state, LSTATUS_D_CLOSING
+
+	ldi temp2, L_NORMAL
+	cpse emergency_state, temp2
+	ldi lift_state, LSTATUS_D_OPEN_WAIT
+
 	clr lift_counter
 	jmp lift_one_second_return
 	
@@ -487,6 +475,28 @@ convert:
 letters:
 	ldi temp1, 'A'
 	add temp1, row ; Get the ASCII value for the key
+
+	cpi lift_state, LSTATUS_MOVING
+	breq convert_end
+
+	do_request_lvl_r current_lvl
+	cp current_lvl, target_lvl
+	brne convert_end
+
+	cpi temp1, 'A'
+	breq open_door
+
+	cpi temp1, 'B'
+	breq close_door
+
+	jmp convert_end
+
+open_door:
+	jmp convert_end_doors_open
+
+close_door:
+	cpi lift_state, LSTATUS_D_OPEN_WAIT
+	breq convert_end_doors_close
 	jmp convert_end
 
 symbols:
@@ -494,15 +504,25 @@ symbols:
 	breq star
 	cpi col, 1 ; or if we have zero
 	breq zero
-	ldi temp1, '#' ; if not we have hash
+	;ldi temp1, '#' ; if not we have hash
 	;rcall lift_one_second
+	do_update_target_lvl
 	jmp convert_end
 
 star:
-	ldi temp1, '*' ; Set to star
-	;emergency
-	rcall emergency
-	jmp convert_end
+	;ldi temp2, '*' ; Set to star
+	cpi emergency_state, L_EMERGENCY
+	brne star_toggle_emergency
+	jmp star_toggle_normal
+
+star_toggle_emergency:
+	ldi emergency_state, L_EMERGENCY
+	jmp convert_end_main
+
+star_toggle_normal:
+	ldi emergency_state, L_NORMAL
+	do_update_target_lvl
+	jmp convert_end_main
 
 zero:
 	clr temp1 ; Set to zero
@@ -517,6 +537,11 @@ convert_end:
 
 convert_end_doors_open:
 	ldi lift_state, LSTATUS_D_OPENING
+	jmp convert_end_main
+
+convert_end_doors_close:
+	ldi lift_state, LSTATUS_D_CLOSING
+	jmp convert_end_main
 
 convert_end_main:
 	do_display_lift
@@ -678,6 +703,7 @@ display_lift_lcd_one_char:
 
 display_current_lvl:
 	do_lcd_data_r lift_state
+	do_lcd_data_r emergency_state
 	mov temp2, lift_counter
 	do_to_ascii_number temp2
 	do_lcd_data_r temp2
@@ -716,13 +742,13 @@ display_lift_led:
 	ldi temp1, 0b00111100
 	cpi lift_state, LSTATUS_IDLE
 	breq display_lift_led_return
-	ldi temp1, 0b11100111
+	ldi temp1, 0b11000011
 	cpi lift_state, LSTATUS_D_OPENING
 	breq display_lift_led_return
 	ldi temp1, 0b10000001
 	cpi lift_state, LSTATUS_D_OPEN_WAIT
 	breq display_lift_led_return
-	ldi temp1, 0b11000011
+	ldi temp1, 0b11100111
 	cpi lift_state, LSTATUS_D_CLOSING
 	breq display_lift_led_return
 	
@@ -783,8 +809,8 @@ update_target_lvl_reset:
 	cpse direction, temp1
 	inc r28 ;if scanning down, increment Y first, since -Y decrements before loading value
 	
-	cpi direction, 0
-	breq update_target_lvl_scandown
+	cp direction, temp1
+	brne update_target_lvl_scandown
 
 update_target_lvl_scanup: 
 	ld temp1, Y+ ;get the requested_flag
@@ -892,17 +918,4 @@ service_lvl:
 
 set_waiting:
 	ldi lift_state, LSTATUS_D_OPEN_WAIT
-	ret
-
-emergency:
-	ldi lift_state, LSTATUS_EMERGENCY
-	;if door_status = 'O' close door
-	;if door_status = 'W' close door
-
-	;ignore all keypad requests
-	;save requested_lvls state
-
-	;do_reset_lift ;set all requested lvls to 0
-	;set target_lvl = 0
-
 	ret
