@@ -142,8 +142,15 @@
 	pop temp1
 .endmacro
 .macro do_display_lift
-    call display_lift_led
-	call display_lift_lcd
+	push temp1
+	call display_lift_led
+	ldi temp1, L_EMERGENCY
+	cpse emergency_state, temp1
+    call display_lift_lcd
+	ldi temp1, L_NORMAL
+	cpse emergency_state, temp1
+    call display_emergency_lcd
+	pop temp1
 .endmacro
 .macro do_update_target_lvl
 	call update_target_lvl
@@ -756,6 +763,28 @@ flag_lvl_return:
     pop YH
     pop YL
     ret
+
+display_emergency_lcd:
+	do_lcd_command 0b00000001
+	do_lcd_data 'E'
+	do_lcd_data 'm'
+	do_lcd_data 'e'
+	do_lcd_data 'r'
+	do_lcd_data 'g'
+	do_lcd_data 'e'
+	do_lcd_data 'n'
+	do_lcd_data 'c'
+	do_lcd_data 'y'
+	do_lcd_command 0b11000000; shift to bottom lcd, can't find this in documentation?
+	do_lcd_data 'C'
+	do_lcd_data 'a'
+	do_lcd_data 'l'
+	do_lcd_data 'l'
+	do_lcd_data ' '
+	do_lcd_data '0'
+	do_lcd_data '0'
+	do_lcd_data '0'
+	ret
 
 display_lift_lcd_flag_target:
 	ldi temp2, 2
