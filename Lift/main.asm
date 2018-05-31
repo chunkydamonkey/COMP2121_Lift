@@ -164,8 +164,17 @@
 	pop YH
 	pop YL
 .endmacro
-.macro LEDstate
-	
+.macro do_strobe_on
+	push temp1
+	ldi temp1, 0b00000010
+	out PORTA, temp1
+	pop temp1
+.endmacro
+.macro do_strobe_off
+	push temp1
+	ldi temp1, 0b00000000
+	out PORTA, temp1
+	pop temp1
 .endmacro
 
 .dseg
@@ -210,11 +219,15 @@ RESET:
 	out DDRF, temp1
 
 	out PORTC, temp1
+	ldi temp1, 0b00000000
+	out PORTA, temp1
 
 	;default states
 	rcall reset_lift
 	ldi temp1, L_NORMAL
 	mov emergency_state, temp1
+
+	
 
 	;Lift testing
 	;do_request_lvl 0
@@ -296,14 +309,10 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	ldi temp1, high(7812) ; 7812 = 106/128 1953
 	cpc r25, temp1
 	brne NotSecond ;if the interval does not coincide with a second interval, then increment and return
-	;com leds ;one's compliment
+	jmp OneSecond
 
-	;out PORTC, target_lvl
-	;---------------------------------
+OneSecond:
 	
-	;do_move_lift
-	;do_display_lift_lcd
-
 	rcall lift_one_second
 
 	;-----------------------------------
@@ -315,12 +324,56 @@ Timer0OVF: ; interrupt subroutine to Timer0
 	adiw r25:r24, 1 ; Increase the second counter by one.
 	sts SecondCounter, r24
 	sts SecondCounter+1, r25
+
 	rjmp EndIF
 
 NotSecond:
 	; Store the new value of the temporary counter.
 	sts TempCounter, r24
 	sts TempCounter+1, r25
+
+	cpi emergency_state, L_EMERGENCY
+	brne EndIF
+
+	cpi r24, low(1) ; Check if (r25:r24) = 7812
+	ldi temp1, high(1) ; 7812 = 106/128 1953
+	cpc r25, temp1
+	breq strobe_on
+
+	cpi r24, low(1302) ; Check if (r25:r24) = 7812
+	ldi temp1, high(1302) ; 7812 = 106/128 1953
+	cpc r25, temp1
+	breq strobe_off
+
+	cpi r24, low(2604) ; Check if (r25:r24) = 7812
+	ldi temp1, high(2604) ; 7812 = 106/128 1953
+	cpc r25, temp1
+	breq strobe_on
+
+	cpi r24, low(3906) ; Check if (r25:r24) = 7812
+	ldi temp1, high(3906) ; 7812 = 106/128 1953
+	cpc r25, temp1
+	breq strobe_off
+
+	cpi r24, low(5208) ; Check if (r25:r24) = 7812
+	ldi temp1, high(5208) ; 7812 = 106/128 1953
+	cpc r25, temp1
+	breq strobe_on
+
+	cpi r24, low(6510) ; Check if (r25:r24) = 7812
+	ldi temp1, high(6510) ; 7812 = 106/128 1953
+	cpc r25, temp1
+	breq strobe_off
+
+	jmp EndIF
+
+strobe_off:
+	do_strobe_off
+	jmp EndIF
+
+strobe_on:
+	do_strobe_on
+	jmp EndIF
 
 EndIF:
 	pop r24 ; Epilogue starts;
@@ -549,10 +602,12 @@ star:
 
 star_toggle_emergency:
 	ldi emergency_state, L_EMERGENCY
+	do_strobe_on
 	jmp convert_end_main
 
 star_toggle_normal:
 	ldi emergency_state, L_NORMAL
+	do_strobe_off
 	do_update_target_lvl
 	jmp convert_end_main
 
